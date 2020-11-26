@@ -6,6 +6,7 @@ using std::endl;
 TreeNode *root=nullptr;
 vector<layer> layers;
 vector<variable> curlayer;
+vector<struct_def> strdef;
 int lid = 0;
 int main ()
 {

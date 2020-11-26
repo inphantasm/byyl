@@ -15,7 +15,6 @@ void main() {
             m3.arr[i][j] = m1.arr[i][j] + m2.arr[i][j];
         }
     }
-
     for(int i=0; i<len; i++) {
         for(int j=0; j<len; j++) {
             printf("<%d>[%d][%d] %d\t",m3.id, i, j, m3.arr[i][j]);

@@ -6,6 +6,7 @@
     extern vector<layer> layers;
     extern vector<variable> curlayer;
     extern int lid;
+    extern vector<struct_def> strdef;
     vector<variable> tmpfor;
     bool forflag = 0;
 %}
@@ -14,14 +15,16 @@
 %start program
 
 %token ID IDadd IDptr INTEGER CHARACTER STRING
-%token IF ELSE WHILE FOR
-%token INT VOID CHAR
-%token LPAREN RPAREN LBRACE RBRACE COMMA SEMICOLON
+%token IF ELSE WHILE FOR STRUCT
+%token CONST
+%token INT VOID CHAR 
+%token LPAREN RPAREN LBRACK RBRACK LBRACE RBRACE COMMA SEMICOLON
 %token TRUE FALSE
 %token ADD MINUS MULTI DIV MOD SELFADD SELFMIN NEG
 %token ASSIGN ADDASS MINASS MULASS DIVASS MODASS
 %token EQUAL NEQUAL BT BE LT LE NOT AND OR
 %token PRINTF SCANF
+%token dot
 
 %right NEG
 %right OR
@@ -55,9 +58,9 @@ statement
         }
         while(!curlayer.empty())
         {
-            printf("layer %d", lid);
+            printf("layer %d\t", lid);
             variable tmpv = curlayer[curlayer.size()-1];
-            printf("    %s  %d\n", tmpv.name.c_str(), tmpv.vid);
+            printf("%d\t\t%s\n", tmpv.type, tmpv.name.c_str());
             curlayer.pop_back();
         }
         printf("\n");
@@ -69,56 +72,100 @@ statement
     | call_func {$$=$1;}
     | printf SEMICOLON {$$=$1;}
     | scanf SEMICOLON {$$=$1;}
+    | struct_def {$$=$1;}
+    ;
+struct_def
+    : STRUCT ID LBRACE struct_ins RBRACE args SEMICOLON
+    {
+        TreeNode* node = new TreeNode(NODE_STRDEF);
+        node->addChild($2);
+        node->addChild($4);
+        int cnum = node->childNum();
+        node->addChild($6);
+        layers.pop_back();
+        struct_def str($2->varName, curlayer);
+        str.struct_index = struct_num++;
+        strdef.push_back(str);
+        curlayer.clear();
+        for(int i = cnum;i < node->childNum();i++)
+        {
+            curlayer.push_back(variable(struct_num, node->getChild(i)->varName));
+        }
+        while(!curlayer.empty())
+        {
+            printf("layer %d\t", lid);
+            variable tmpv = curlayer[curlayer.size()-1];
+            printf("%d\t\t%s\n", tmpv.type, tmpv.name.c_str());
+            curlayer.pop_back();
+        }
+        $$=node;
+    }
+    | STRUCT ID LBRACE struct_ins RBRACE SEMICOLON
+    {
+        TreeNode* node = new TreeNode(NODE_STRDEF);
+        node->addChild($2);
+        node->addChild($4);
+        layers.pop_back();
+        struct_def str($2->varName, curlayer);
+        str.struct_index = struct_num++;
+        strdef.push_back(str);
+        curlayer.clear();
+        $$=node;
+    }
+    ;
+struct_ins
+    : instruction {$$=$1;}
+    | struct_ins instruction {$$=$1;$$->addSibling($2);}
     ;
 ass
-    : ID ASSIGN expr{
+    : IDS ASSIGN expr{
         TreeNode* node=new TreeNode(NODE_ASSIGN);
         node->addChild($1);
         node->addChild($3);
         $$=node;
     }
-    | ID ADDASS expr{
+    | IDS ADDASS expr{
         TreeNode* node=new TreeNode(NODE_ASSIGN);
         node->opType=OP_ADD;
         node->addChild($1);
         node->addChild($3);
         $$=node;
     }
-    | ID MINASS expr{
+    | IDS MINASS expr{
         TreeNode* node=new TreeNode(NODE_ASSIGN);
         node->opType=OP_MINUS;
         node->addChild($1);
         node->addChild($3);
         $$=node;
     }
-    | ID MULASS expr{
+    | IDS MULASS expr{
         TreeNode* node=new TreeNode(NODE_ASSIGN);
         node->opType=OP_MULTI;
         node->addChild($1);
         node->addChild($3);
         $$=node;
     }
-    | ID DIVASS expr{
+    | IDS DIVASS expr{
         TreeNode* node=new TreeNode(NODE_ASSIGN);
         node->opType=OP_DIV;
         node->addChild($1);
         node->addChild($3);
         $$=node;
     }
-    | ID MODASS expr{
+    | IDS MODASS expr{
         TreeNode* node=new TreeNode(NODE_ASSIGN);
         node->opType=OP_MOD;
         node->addChild($1);
         node->addChild($3);
         $$=node;
     }
-    | ID SELFADD {
+    | IDS SELFADD {
         TreeNode *node=new TreeNode(NODE_ASSIGN);
         node->opType=OP_SADD;
         node->addChild($1);
         $$=node; 
     }
-    | ID SELFMIN {
+    | IDS SELFMIN {
         TreeNode *node=new TreeNode(NODE_ASSIGN);
         node->opType=OP_SMIN;
         node->addChild($1);
@@ -126,16 +173,16 @@ ass
     }
     ;
 args
-    : ID {$$=$1;}
+    : IDS {$$=$1;}
     | ass {$$=$1;}
-    | args COMMA ID {$$=$1; $$->addSibling($3);}
+    | args COMMA IDS {$$=$1; $$->addSibling($3);}
     | args COMMA ass {$$=$1; $$->addSibling($3);}
     ;
 call_args
-    : ID {$$=$1;}
+    : IDS {$$=$1;}
     | IDadd {$$=$1;}
     | IDptr {$$=$1;}
-    | call_args COMMA ID {$$=$1; $$->addSibling($3);}
+    | call_args COMMA IDS {$$=$1; $$->addSibling($3);}
     | call_args COMMA IDadd {$$=$1; $$->addSibling($3);}
     | call_args COMMA IDptr {$$=$1; $$->addSibling($3);}
     ;
@@ -239,15 +286,15 @@ instruction
             {
                 if(curlayer[j].name == (cld->nodeType==NODE_ASSIGN?cld->getChild(0)->varName:cld->varName))
                 {
-                    printf("ParseError(Same Variable)%s\n", (cld->nodeType==NODE_ASSIGN?cld->getChild(0)->varName:cld->varName).c_str());
+                    printf("ParseError(Same Variable)\n");
                     preflag = 1;
                     break;
                 }
             }
             if(!preflag)
             {
-                curlayer.push_back(variable(cld->nodeType==NODE_ASSIGN?cld->getChild(0)->varName:cld->varName, curlayer.size()));
-                if(forflag) tmpfor.push_back(variable(cld->nodeType==NODE_ASSIGN?cld->getChild(0)->varName:cld->varName, curlayer.size()));
+                curlayer.push_back(variable($1->varType, cld->nodeType==NODE_ASSIGN?cld->getChild(0)->varName:cld->varName));
+                if(forflag) tmpfor.push_back(variable($1->varType, cld->nodeType==NODE_ASSIGN?cld->getChild(0)->varName:cld->varName));
                 forflag = 0;
             }
             preflag = 0;
@@ -258,6 +305,39 @@ instruction
         node->stmtType=STMT_ASSIGN;
         node->addChild($1);
         $$=node;  
+    }
+    | CONST type args SEMICOLON {
+        TreeNode *node=new TreeNode(NODE_STMT);
+        node->stmtType=STMT_DECL;
+        node->addChild($2);
+        node->addChild($3);
+        $$=node;
+        int preflag = 0;
+        vector<variable> l;
+        if(!layers.empty())
+        {
+            l = layers[layers.size()-1].varies;
+        }
+        for(int i = 1;i < node->childNum();i++)
+        {
+            TreeNode* cld = node->getChild(i);
+            for(int j = l.size();j < curlayer.size();j++)
+            {
+                if(curlayer[j].name == (cld->nodeType==NODE_ASSIGN?cld->getChild(0)->varName:cld->varName))
+                {
+                    printf("ParseError(Same Variable)\n");
+                    preflag = 1;
+                    break;
+                }
+            }
+            if(!preflag)
+            {
+                curlayer.push_back(variable($1->varType, cld->nodeType==NODE_ASSIGN?cld->getChild(0)->varName:cld->varName));
+                if(forflag) tmpfor.push_back(variable($1->varType, cld->nodeType==NODE_ASSIGN?cld->getChild(0)->varName:cld->varName));
+                forflag = 0;
+            }
+            preflag = 0;
+        }
     }
     ;
 printf
@@ -357,7 +437,7 @@ bool_expr
     }
     ;
 expr
-    : ID {$$=$1;}
+    : IDS {$$=$1;}
     | INTEGER {$$=$1;}
     | CHARACTER {$$=$1;}
     | STRING {$$=$1;}
@@ -420,5 +500,48 @@ type
         $$=node;
     }
     ;
-
+IDARR
+    : ID LBRACK expr RBRACK {
+        $$=$1;
+        $$->dim.push_back($3);
+    }
+    | IDARR LBRACK expr RBRACK {
+        $$=$1;
+        $$->dim.push_back($3);
+    }
+    ;
+IDcld
+    : ID dot ID {
+        $$=$1;
+        $$->addChild($3);
+    }
+    | IDARR dot ID {
+        $$=$1;
+        $$->addChild($3);
+    }
+    | ID dot IDARR {
+        $$=$1;
+        $$->addChild($3);
+    }
+    | IDARR dot IDARR {
+        $$=$1;
+        $$->addChild($3);
+    }
+    | IDcld dot ID {
+        $$=$1;
+        $$->addChild($3);
+    }
+    | IDcld dot ID {
+        $$=$1;
+        $$->addChild($3);
+    }
+    | IDcld dot IDARR {
+        $$=$1;
+        $$->addChild($3);
+    }
+    ;
+IDS 
+    : ID {$$=$1;}
+    | IDARR {$$=$1;}
+    | IDcld {$$=$1;}
 %%

@@ -1,8 +1,8 @@
 #ifndef COMMON_H
 #define COMMON_H
 
-#include "tree.h"
 #include "layer.h"
+#include "struct.h"
 #define YYSTYPE TreeNode *
 
 #endif

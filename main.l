@@ -50,10 +50,14 @@ ALTERcomment "//"
 "if" return IF;
 "while" return WHILE;
 "else" return ELSE;
+"struct" return STRUCT;
 
 "printf" return PRINTF;
 "scanf" return SCANF;
 
+"const" return CONST;
+
+"." return dot;
 "=" return ASSIGN;
 "+=" return ADDASS;
 "-=" return MINASS;
@@ -83,6 +87,8 @@ ALTERcomment "//"
 ";" return SEMICOLON;
 "(" return LPAREN;
 ")" return RPAREN;
+"[" return LBRACK;
+"]" return RBRACK;
 "{" {
     layers.push_back(layer(curlayer, lid++));
     return LBRACE;

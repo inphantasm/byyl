@@ -40,6 +40,7 @@ void function::output()
     printf("\tmovl\t%%esp, %%ebp\n");
     for (vector<string>::iterator it = code.begin(); it != code.end(); it++)
     {
+        // 优化
         if(*(it) == "\tpushl\t%eax\n" && *(it+1) == "\tpopl\t%eax\n")
         {
             it += 2;
@@ -48,6 +49,7 @@ void function::output()
         {
             it += 2;
         }
+        // 优化
         printf("%s", (*it).c_str());
     }
     printf("\tpopl\t%%ebp\n");

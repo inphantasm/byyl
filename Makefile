@@ -1,4 +1,4 @@
-.PHONY: all clean main run test debug t0 m0 t1 m1 t2 m2 t3 m3
+.PHONY: all clean main run git testall debug t0 m0 t1 m1 t2 m2 t3 m3
 all: run
 main.tab.cc: main.y
 	bison -o main.tab.cc -v main.y
@@ -7,7 +7,11 @@ lex.yy.cc: main.l
 main:
 	g++ $(shell ls *.cpp *.cc) -o main.out
 run: lex.yy.cc main.tab.cc main
-test:run
+git:
+	git add .
+	git commit -m "$(shell date +%Y/%m/%d-%T)"
+	git push -f origin HW6
+testall:run
 	for file in $(basename $(shell find test/*.c)); \
 	do \
 		./main.out <$$file.c >$$file.res; \

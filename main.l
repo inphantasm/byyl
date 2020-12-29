@@ -62,7 +62,8 @@ ALTERcomment "//"
 "int" return INT;
 "void" return VOID;
 "char" return CHAR;
-
+"string" return STR;
+ 
 "for" return FOR;
 "if" return IF;
 "while" return WHILE;
@@ -146,7 +147,7 @@ ALTERcomment "//"
     str.erase(0,str.find_first_not_of("\""));
     str.erase(str.find_last_not_of("\"") + 1);
     node->str_val = str;
-    node->varType = VAR_STRING;
+    node->varType = VAR_STR;
     yylval = node;
     return STRING;
 }

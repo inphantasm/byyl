@@ -24,7 +24,7 @@ t0:run
 	rm -f *.output *.yy.* *.tab.* *.out
 m0:
 	gcc test/0.s -m32 -o test/0.out
-	qemu-i386 test/0.out >test/ASM0.res
+	qemu-i386 test/0.out <test/testin >test/ASM0.res
 	rm -f test/*.out test/*.s
 t1:run
 	./main.out <test/1.c >test/1.res
@@ -32,7 +32,7 @@ t1:run
 	rm -f *.output *.yy.* *.tab.* *.out
 m1:
 	gcc test/1.s -m32 -o test/1.out
-	qemu-i386 test/1.out >test/ASM1.res
+	qemu-i386 test/1.out <test/testin >test/ASM1.res
 	rm -f test/*.out test/*.s
 t2:run
 	./main.out <test/2.c >test/2.res

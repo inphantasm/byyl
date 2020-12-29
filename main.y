@@ -11,12 +11,21 @@
     extern vector<struct_def> strdef;
     extern rodata _rodata;
     extern function _function;
-    int ASMstack = 1;
+    int tmpins = 1;
+    bool insflag = 0;
+    bool scanflag = 0;
+    bool whileflag = 0;
+    bool forflagi = 0;
+    bool forflagb = 0;
+    bool forflaga = 0;
+    vector<string> whilecode;
+    vector<string> forcode;
     int curlabel;
     vector<int> label;
     int if_lev = 0;
+    int whilectr = 0;
+    int forctr = 0;
     int bool_breaker = 0;
-    bool forflag;
     vector<tmpvariable> tmpfor;
     int forlevel = 0;
 %}
@@ -27,7 +36,7 @@
 %token ID IDadd IDptr INTEGER CHARACTER STRING
 %token IF ELSE WHILE FOR STRUCT
 %token CONST
-%token INT VOID CHAR 
+%token INT VOID CHAR STR
 %token LPAREN RPAREN LBRACK RBRACK LBRACE RBRACE COMMA SEMICOLON
 %token TRUE FALSE
 %token ADD MINUS MULTI DIV MOD SELFADD SELFMIN NEG
@@ -69,18 +78,17 @@ statement
     | for {$$=$1;}
     | LBRACE statements RBRACE {
         $$=$2;
-        //for(int i = layers.size()-1;i >= 0;i--)
-        //{
-        //    layers[i].output();
-        //}
+        // for(int i = layers.size()-1;i >= 0;i--)
+        // {
+        //     layers[i].output();
+        // }
         vector<variable> var = layers[layers.size()-1].varies;
         while(curlayer.size()!=var.size())
         {
-            //printf("layer %d\t", lid);
-            //variable tmpv = curlayer[curlayer.size()-1];
-            //printf("%d\t\t%s\n", tmpv.type, tmpv.name.c_str());
-            ASMstack--;
-            _function.addCode("\taddl\t$4, %esp\n");
+            // printf("layer %d\t", lid);
+            // variable tmpv = curlayer[curlayer.size()-1];
+            // printf("%d\t\t%s\n", tmpv.type, tmpv.name.c_str());
+            if(curlayer[curlayer.size()-1].type != 4) _function.addCode("\taddl\t$4, %esp\n");
             curlayer.pop_back();
         }
         layers.pop_back();
@@ -129,6 +137,7 @@ struct_ins
     ;
 ass
     : IDS ASSIGN expr{
+        string index;
         TreeNode* node=new TreeNode(NODE_ASSIGN);
         node->addChild($1);
         node->addChild($3);
@@ -137,10 +146,24 @@ ass
             printf("INVALID type\n");
             exit(1);
         }
-        _function.addCode("\tpopl\t%eax\n");
-        _function.addCode("\tmovl\t%eax, -"+to_string(4*ASMstack++)+"(%ebp)\n");
-        _function.addCode("\tsubl\t$4, %esp\n");
-        $$=node;
+        if($3->varType == VAR_STR)
+            goto END1;
+        if($1->int_val == -1)
+            index = to_string(4*(tmpins++));
+        else
+            index = to_string(4*$1->int_val);
+        if(forflaga)
+        {
+            forcode.push_back("\tpopl\t%eax\n");
+            forcode.push_back("\tmovl\t%eax, -"+index+"(%ebp)\n");
+        }
+        else
+        {
+            _function.addCode("\tpopl\t%eax\n");
+            _function.addCode("\tmovl\t%eax, -"+index+"(%ebp)\n");
+        }
+        if(insflag) _function.addCode("\tsubl\t$4, %esp\n");
+        END1:$$=node;
     }
     | IDS ADDASS expr{
         TreeNode* node=new TreeNode(NODE_ASSIGN);
@@ -151,6 +174,17 @@ ass
         {
             printf("INVALID type\n");
             exit(1);
+        }
+        string str = "\tpopl\t%eax\n";
+        str += "\taddl\t-" + to_string(4*$1->int_val) + "(%ebp), %eax\n";
+        str += "\tmovl\t%eax, -"+to_string(4*$1->int_val)+"(%ebp)\n";
+        if(forflaga)
+        {
+            forcode.push_back(str);
+        }
+        else
+        {
+            _function.addCode(str);
         }
         $$=node;
     }
@@ -164,6 +198,19 @@ ass
             printf("INVALID type\n");
             exit(1);
         }
+        string str = "\tpopl\t%eax\n";
+        str += "\tsubl\t-" + to_string(4*$1->int_val) + "(%ebp), %eax\n";
+        str += "\tmovl\t$-1, %ebx\n";
+        str += "\timull\t%ebx\n";
+        str += "\tmovl\t%eax, -"+to_string(4*$1->int_val)+"(%ebp)\n";
+        if(forflaga)
+        {
+            forcode.push_back(str);
+        }
+        else
+        {
+            _function.addCode(str);
+        }
         $$=node;
     }
     | IDS MULASS expr{
@@ -171,10 +218,22 @@ ass
         node->opType=OP_MULTI;
         node->addChild($1);
         node->addChild($3);
-        if($1->varType != -1 && !($1->varType == $3->varType == VAR_INTEGER))
+        if($1->varType != -1 && !($1->varType == $3->varType && $1->varType == VAR_INTEGER))
         {
             printf("INVALID type\n");
             exit(1);
+        }
+        string str = "\tpopl\t%ebx\n";
+        str += "\tmovl\t-" + to_string(4*$1->int_val) + "(%ebp), %eax\n";
+        str += "\timull\t%ebx\n";
+        str += "\tmovl\t%eax, -"+to_string(4*$1->int_val)+"(%ebp)\n";
+        if(forflaga)
+        {
+            forcode.push_back(str);
+        }
+        else
+        {
+            _function.addCode(str);
         }
         $$=node;
     }
@@ -183,6 +242,19 @@ ass
         node->opType=OP_DIV;
         node->addChild($1);
         node->addChild($3);
+        string str = "\tpopl\t%ebx\n";
+        str += "\tmovl\t-" + to_string(4*$1->int_val) + "(%ebp), %eax\n";
+        str += "\tcltd\n";
+        str += "\tidivl\t%ebx\n";
+        str += "\tmovl\t%eax, -"+to_string(4*$1->int_val)+"(%ebp)\n";
+        if(forflaga)
+        {
+            forcode.push_back(str);
+        }
+        else
+        {
+            _function.addCode(str);
+        }
         $$=node;
     }
     | IDS MODASS expr{
@@ -190,12 +262,36 @@ ass
         node->opType=OP_MOD;
         node->addChild($1);
         node->addChild($3);
+        string str = "\tpopl\t%ebx\n";
+        str += "\tmovl\t-" + to_string(4*$1->int_val) + "(%ebp), %eax\n";
+        str += "\tcltd\n";
+        str += "\tidivl\t%ebx\n";
+        str += "\tmovl\t%edx, -"+to_string(4*$1->int_val)+"(%ebp)\n";
+        if(forflaga)
+        {
+            forcode.push_back(str);
+        }
+        else
+        {
+            _function.addCode(str);
+        }
         $$=node;
     }
     | IDS SELFADD {
         TreeNode *node=new TreeNode(NODE_ASSIGN);
         node->opType=OP_SADD;
         node->addChild($1);
+        string str = "\tmovl\t$1, %eax\n";
+        str += "\taddl\t-" + to_string(4*$1->int_val) + "(%ebp), %eax\n";
+        str += "\tmovl\t%eax, -"+to_string(4*$1->int_val)+"(%ebp)\n";
+        if(forflaga)
+        {
+            forcode.push_back(str);
+        }
+        else
+        {
+            _function.addCode(str);
+        }
         $$=node; 
     }
     | IDS SELFMIN {
@@ -203,20 +299,41 @@ ass
         node->opType=OP_SMIN;
         node->addChild($1);
         $$=node; 
+        string str = "\tmovl\t$-1, %eax\n";
+        str += "\taddl\t-" + to_string(4*$1->int_val) + "(%ebp), %eax\n";
+        str += "\tmovl\t%eax, -"+to_string(4*$1->int_val)+"(%ebp)\n";
+        if(forflaga)
+        {
+            forcode.push_back(str);
+        }
+        else
+        {
+            _function.addCode(str);
+        }
     }
     ;
 args
     : IDS {
         $$=$1; 
-        _function.addCode("\tmovl\t$0, -"+to_string(4*ASMstack++)+"(%ebp)\n"); 
-        _function.addCode("\tsubl\t$4, %esp\n");
+        string index;
+        if($1->int_val == -1)
+            index = to_string(4*(tmpins++));
+        else
+            index = to_string(4*$1->int_val);
+        _function.addCode("\tmovl\t$0, -"+index+"(%ebp)\n"); 
+        if(insflag) _function.addCode("\tsubl\t$4, %esp\n");
     }
     | ass {$$=$1;}
     | args COMMA IDS {
         $$=$1;
         $$->addSibling($3);
-        _function.addCode("\tmovl\t$0, -"+to_string(4*ASMstack++)+"(%ebp)\n"); 
-        _function.addCode("\tsubl\t$4, %esp\n");
+        string index;
+        if($1->int_val == -1)
+            index = to_string(4*(tmpins++));
+        else
+            index = to_string(4*$3->int_val);
+        _function.addCode("\tmovl\t$0, -"+index+"(%ebp)\n"); 
+        if(insflag) _function.addCode("\tsubl\t$4, %esp\n");
     }
     | args COMMA ass {$$=$1; $$->addSibling($3);}
     ;
@@ -295,17 +412,40 @@ if_else
         $$=node;
     }
     ;
+_while
+    : WHILE {
+        whileflag = 1;
+    }
+whiletest
+    : _while bool_statment {
+        TreeNode *node=new TreeNode(NODE_WEXPR);
+        node->int_val=whilectr;
+        node->addChild($2);
+        _function.addCode("WS"+to_string(whilectr)+":\n");
+        for(int i = 0;i < whilecode.size();i++)
+        {
+            _function.addCode(whilecode[i]);
+        }
+        whilecode.clear();
+        _function.addCode("\tpopl\t%eax\n");
+        _function.addCode("\tcmpl\t$1, %eax\n");
+        _function.addCode("\tjne\tWE"+to_string(whilectr++)+"\n");
+        whileflag = 0;
+        $$=node;
+    }
 while
-    : WHILE bool_statment statement {
+    : whiletest statement {
         TreeNode *node=new TreeNode(NODE_STMT);
         node->stmtType=STMT_WHILE;
+        node->addChild($1);
         node->addChild($2);
-        node->addChild($3);
+        _function.addCode("\tjmp\tWS"+to_string($1->int_val)+"\n");
+        _function.addCode("WE"+to_string($1->int_val)+":\n");
         $$=node;
     }
     ;
 for
-    : FORE for_expr statement{
+    : _for for_expr statement{
         TreeNode *node=new TreeNode(NODE_STMT);
         node->stmtType=STMT_FOR;
         node->addChild($2);
@@ -317,21 +457,56 @@ for
             tmpfor.pop_back();
         }
         forlevel--;
+        for(int i = 0;i < forcode.size();i++)
+        {
+            _function.addCode(forcode[i]);
+        }
+        forcode.clear();
+        _function.addCode("\tjmp\tFS"+to_string($2->getChild(0)->int_val)+"\n");
+        _function.addCode("FE"+to_string($2->getChild(0)->int_val)+":\n");
     }
     ;
-FORE
+_for
     : FOR
     {
         $$=$1;
-        forflag = 1;
+        forflagi = 1;
+        forflagb = 0;
+        forflaga = 0;
     }
 for_expr
-    : LPAREN instruction bool_expr SEMICOLON ass RPAREN{
+    : for_expr1 for_expr2 {
         TreeNode *node=new TreeNode(NODE_FEXPR);
+        node->int_val = forctr;
+        node->addChild($1);
+        node->addChild($2);
+        $$ = node;
+    }
+for_expr1
+    : LPAREN instruction bool_expr SEMICOLON {
+        TreeNode *node=new TreeNode(NODE_FEXPR);
+        node->int_val = forctr;
         node->addChild($2);
         node->addChild($3);
-        node->addChild($5);
+        for(int i = 0;i < forcode.size();i++)
+        {
+            _function.addCode(forcode[i]);
+        }
+        forcode.clear();
+        _function.addCode("\tpopl\t%eax\n");
+        _function.addCode("\tcmpl\t$1, %eax\n");
+        _function.addCode("\tjne\tFE"+to_string(forctr)+"\n");
+        forflagb = 0;
+        forflaga = 1;
         $$=node;
+    }
+for_expr2
+    : ass RPAREN {
+        TreeNode *node=new TreeNode(NODE_FEXPR);
+        node->int_val = forctr++;
+        node->addChild($1);
+        forflaga = 0;
+        $$ = node;
         forlevel++;
     }
 bool_statment
@@ -371,16 +546,35 @@ instruction
             }
             if(!preflag)
             {
+                if(vtype == VAR_STR)
+                {
+                    if(cld->childNum() == 0)
+                    {
+                        printf("STRING NOT CONSTANT\n");
+                        exit(1);
+                    }
+                    curlayer.push_back(variable(cld->getChild(0)->varName, _rodata.size()));
+                    _rodata.push_back(cld->getChild(1)->str_val);
+                    if(forflagi) tmpfor.push_back(tmpvariable(variable(cld->getChild(0)->varName, _rodata.size()), forlevel));
+                    goto EA;
+                }
                 curlayer.push_back(variable($1->varType, cld->nodeType==NODE_ASSIGN?cld->getChild(0)->varName:cld->varName));
                 for(int j = 0;j < cld->dim.size();j++)
                 {
                     curlayer[curlayer.size()-1].dim.push_back(cld->dim[j]);
                 }
-                if(forflag) tmpfor.push_back(tmpvariable(variable($1->varType, cld->nodeType==NODE_ASSIGN?cld->getChild(0)->varName:cld->varName), forlevel));
+                if(forflagi) tmpfor.push_back(tmpvariable(variable($1->varType, cld->nodeType==NODE_ASSIGN?cld->getChild(0)->varName:cld->varName), forlevel));
             }
-            preflag = 0;
+            EA:preflag = 0;
         }
-        forflag = 0;
+        if(forflagi) 
+        {
+            forflagb = 1;
+            _function.addCode("FS" + to_string(forctr) + ":\n");
+        }
+        forflagi = 0;
+        insflag = 0;
+        tmpins = curlayer.size() + 1;
     }
     | args SEMICOLON {
         TreeNode *node=new TreeNode(NODE_STMT);
@@ -389,7 +583,7 @@ instruction
         for(int i = 0;i < node->childNum();i++)
         {
             TreeNode* cld = node->getChild(i);
-            if(cld->getChild(0)->varType != cld->getChild(1)->varType)
+            if(cld->childNum() != 1 && cld->getChild(0)->varType != cld->getChild(1)->varType)
             {
                 printf("INVALID type\n");
                 exit(1);
@@ -429,11 +623,12 @@ instruction
                 {
                     curlayer[curlayer.size()-1].dim.push_back(cld->dim[j]);
                 }
-                if(forflag) tmpfor.push_back(tmpvariable(variable($1->varType, cld->nodeType==NODE_ASSIGN?cld->getChild(0)->varName:cld->varName), forlevel));
+                if(forflagi) tmpfor.push_back(tmpvariable(variable($1->varType, cld->nodeType==NODE_ASSIGN?cld->getChild(0)->varName:cld->varName), forlevel));
             }
             preflag = 0;
         }
-        forflag = 0;
+        forflagi = 0;
+        forflagb = 1;
     }
     ;
 printf
@@ -462,6 +657,9 @@ printf
                     case 'c':
                         q.push_back(VAR_CHAR);
                         break;
+                    case 's':
+                        q.push_back(VAR_STR);
+                        break;
                     default:
                         printf("INVALID CONTROL.\n");
                         exit(1);
@@ -488,10 +686,10 @@ printf
         {
             _function.addCode(tmpv[i]);
         }
-        _function.addCode("\tsubl\t$"+to_string(q.size()*4)+", %ebp\n");
+        _function.addCode("\tsubl\t$"+to_string(curlayer.size()*4)+", %ebp\n");
         _function.addCode("\tpushl\t$STR"+to_string(_rodata.size()-1)+"\n");
         _function.addCode("\tcall\tprintf\n");
-        _function.addCode("\taddl\t$"+to_string(q.size()*4)+", %ebp\n");
+        _function.addCode("\taddl\t$"+to_string(curlayer.size()*4)+", %ebp\n");
         _function.addCode("\taddl\t$"+to_string(q.size()*4+4)+", %esp\n");
         $$=node;
     }
@@ -508,13 +706,19 @@ printf
         $$=node;
     }
     ;
+_SCANF
+    : SCANF
+    {
+        scanflag = 1;
+    }
 scanf
-    : SCANF LPAREN STRING COMMA call_args RPAREN {
+    : _SCANF LPAREN STRING COMMA call_args RPAREN {
         TreeNode *node=new TreeNode(NODE_STMT);
         node->stmtType=STMT_SCANF;
         node->addChild($3);
         node->addChild($5);
-        queue<int> q;
+        _rodata.push_back($3->str_val);
+        vector<int> q;
         string str = $3->str_val;
         for(int i = 0;i < str.length();i++)
         {
@@ -528,10 +732,13 @@ scanf
                 switch(str[i+1])
                 {
                     case 'd':
-                        q.push(VAR_INTEGER);
+                        q.push_back(VAR_INTEGER);
                         break;
                     case 'c':
-                        q.push(VAR_CHAR);
+                        q.push_back(VAR_CHAR);
+                        break;
+                    case 's':
+                        q.push_back(VAR_STR);
                         break;
                     default:
                         printf("INVALID CONTROL.\n");
@@ -544,27 +751,65 @@ scanf
             printf("INVALID SCANF.\n");
             exit(1);
         }
+        vector<string> tmpv;
         for(int i = 0;i < q.size();i++)
         {
-            if(q.front() != node->getChild(i+1)->varType)
+            TreeNode* cld = node->getChild(i+1);
+            if(q[i] != cld->varType)
             {
                 printf("INVALID type\n");
                 exit(1);
             }
+            tmpv.push_back(_function.delCode());
         }
+        for(int i = 0;i < tmpv.size();i++)
+        {
+            string str = tmpv[i].substr(7);
+            str = "\tleal\t" + str.substr(0, str.find("\n")) + ", %eax\n";
+            _function.addCode(str);
+            _function.addCode("\tpushl\t%eax\n");
+        }
+        _function.addCode("\tsubl\t$"+to_string(curlayer.size()*4)+", %ebp\n");
+        _function.addCode("\tpushl\t$STR"+to_string(_rodata.size()-1)+"\n");
+        _function.addCode("\tcall\tscanf\n");
+        _function.addCode("\taddl\t$"+to_string(curlayer.size()*4)+", %ebp\n");
+        _function.addCode("\taddl\t$"+to_string(q.size()*4+4)+", %esp\n");
         $$=node;
+        scanflag = 0;
     }
     ;
 bool_expr
     : TRUE {
         $$=$1; 
         $$->varType = VAR_BOOLEAN; 
-        _function.addCode("\tpushl\t$1\n");
+        if(whileflag)
+        {
+            whilecode.push_back("\tpushl\t$1\n");
+        }
+        else if(forflagb)
+        {
+            forcode.push_back("\tpushl\t$1\n");
+        }
+        else
+        {
+            _function.addCode("\tpushl\t$1\n");
+        }
     }
     | FALSE {
         $$=$1; 
         $$->varType = VAR_BOOLEAN; 
-        _function.addCode("\tpushl\t$0\n");
+        if(whileflag)
+        {
+            whilecode.push_back("\tpushl\t$0\n");
+        }
+        else if(forflagb)
+        {
+            forcode.push_back("\tpushl\t$0\n");
+        }
+        else
+        {
+            _function.addCode("\tpushl\t$0\n");
+        }
     }
     | expr EQUAL expr {
         TreeNode *node=new TreeNode(NODE_OP);
@@ -577,15 +822,27 @@ bool_expr
             printf("INVALID TYPE\n");
             exit(1);
         }
-        _function.addCode("\tpopl\t%eax\n");
-        _function.addCode("\tpopl\t%ebx\n");
-        _function.addCode("\tcmpl\t%eax, %ebx\n");
-        _function.addCode("\tjne\t.BB" + to_string(bool_breaker++) + "\n");
-        _function.addCode("\tpushl\t$1\n");
-        _function.addCode("\tjmp\t.BB" + to_string(bool_breaker++) + "\n");
-        _function.addCode(".BB" + to_string(bool_breaker-2) + ":\n");
-        _function.addCode("\tpushl\t$0\n");
-        _function.addCode(".BB" + to_string(bool_breaker-1) + ":\n");
+        string str = "\tpopl\t%eax\n"; 
+        str += "\tpopl\t%ebx\n";
+        str += "\tcmpl\t%eax, %ebx\n";
+        str += "\tjne\t.BB" + to_string(bool_breaker++) + "\n";
+        str += "\tpushl\t$1\n";
+        str += "\tjmp\t.BB" + to_string(bool_breaker++) + "\n";
+        str += ".BB" + to_string(bool_breaker-2) + ":\n";
+        str += "\tpushl\t$0\n";
+        str += ".BB" + to_string(bool_breaker-1) + ":\n";
+        if(whileflag)
+        {
+            whilecode.push_back(str);
+        }
+        else if(forflagb)
+        {
+            forcode.push_back(str);
+        }
+        else
+        {
+            _function.addCode(str);
+        }
         $$=node;
     }
     | expr NEQUAL expr {
@@ -599,15 +856,42 @@ bool_expr
             printf("INVALID TYPE\n");
             exit(1);
         }
-        _function.addCode("\tpopl\t%eax\n");
-        _function.addCode("\tpopl\t%ebx\n");
-        _function.addCode("\tcmpl\t%eax, %ebx\n");
-        _function.addCode("\tje\t.BB" + to_string(bool_breaker++) + "\n");
-        _function.addCode("\tpushl\t$1\n");
-        _function.addCode("\tjmp\t.BB" + to_string(bool_breaker++) + "\n");
-        _function.addCode(".BB" + to_string(bool_breaker-2) + ":\n");
-        _function.addCode("\tpushl\t$0\n");
-        _function.addCode(".BB" + to_string(bool_breaker-1) + ":\n");
+        if(whileflag)
+        {
+            whilecode.push_back("\tpopl\t%eax\n");
+            whilecode.push_back("\tpopl\t%ebx\n");
+            whilecode.push_back("\tcmpl\t%eax, %ebx\n");
+            whilecode.push_back("\tje\t.BB" + to_string(bool_breaker++) + "\n");
+            whilecode.push_back("\tpushl\t$1\n");
+            whilecode.push_back("\tjmp\t.BB" + to_string(bool_breaker++) + "\n");
+            whilecode.push_back(".BB" + to_string(bool_breaker-2) + ":\n");
+            whilecode.push_back("\tpushl\t$0\n");
+            whilecode.push_back(".BB" + to_string(bool_breaker-1) + ":\n");
+        }
+        else if(forflagb)
+        {
+            forcode.push_back("\tpopl\t%eax\n");
+            forcode.push_back("\tpopl\t%ebx\n");
+            forcode.push_back("\tcmpl\t%eax, %ebx\n");
+            forcode.push_back("\tje\t.BB" + to_string(bool_breaker++) + "\n");
+            forcode.push_back("\tpushl\t$1\n");
+            forcode.push_back("\tjmp\t.BB" + to_string(bool_breaker++) + "\n");
+            forcode.push_back(".BB" + to_string(bool_breaker-2) + ":\n");
+            forcode.push_back("\tpushl\t$0\n");
+            forcode.push_back(".BB" + to_string(bool_breaker-1) + ":\n");
+        }
+        else
+        {
+            _function.addCode("\tpopl\t%eax\n");
+            _function.addCode("\tpopl\t%ebx\n");
+            _function.addCode("\tcmpl\t%eax, %ebx\n");
+            _function.addCode("\tje\t.BB" + to_string(bool_breaker++) + "\n");
+            _function.addCode("\tpushl\t$1\n");
+            _function.addCode("\tjmp\t.BB" + to_string(bool_breaker++) + "\n");
+            _function.addCode(".BB" + to_string(bool_breaker-2) + ":\n");
+            _function.addCode("\tpushl\t$0\n");
+            _function.addCode(".BB" + to_string(bool_breaker-1) + ":\n");
+        }
         $$=node;
     }
     | expr BT expr {
@@ -622,15 +906,42 @@ bool_expr
             exit(1);
         }
         $$=node;
-        _function.addCode("\tpopl\t%eax\n");
-        _function.addCode("\tpopl\t%ebx\n");
-        _function.addCode("\tcmpl\t%eax, %ebx\n");
-        _function.addCode("\tjle\t.BB" + to_string(bool_breaker++) + "\n");
-        _function.addCode("\tpushl\t$1\n");
-        _function.addCode("\tjmp\t.BB" + to_string(bool_breaker++) + "\n");
-        _function.addCode(".BB" + to_string(bool_breaker-2) + ":\n");
-        _function.addCode("\tpushl\t$0\n");
-        _function.addCode(".BB" + to_string(bool_breaker-1) + ":\n");
+        if(whileflag)
+        {
+            whilecode.push_back("\tpopl\t%eax\n");
+            whilecode.push_back("\tpopl\t%ebx\n");
+            whilecode.push_back("\tcmpl\t%eax, %ebx\n");
+            whilecode.push_back("\tjle\t.BB" + to_string(bool_breaker++) + "\n");
+            whilecode.push_back("\tpushl\t$1\n");
+            whilecode.push_back("\tjmp\t.BB" + to_string(bool_breaker++) + "\n");
+            whilecode.push_back(".BB" + to_string(bool_breaker-2) + ":\n");
+            whilecode.push_back("\tpushl\t$0\n");
+            whilecode.push_back(".BB" + to_string(bool_breaker-1) + ":\n");
+        }
+        else if(forflagb)
+        {
+            forcode.push_back("\tpopl\t%eax\n");
+            forcode.push_back("\tpopl\t%ebx\n");
+            forcode.push_back("\tcmpl\t%eax, %ebx\n");
+            forcode.push_back("\tjle\t.BB" + to_string(bool_breaker++) + "\n");
+            forcode.push_back("\tpushl\t$1\n");
+            forcode.push_back("\tjmp\t.BB" + to_string(bool_breaker++) + "\n");
+            forcode.push_back(".BB" + to_string(bool_breaker-2) + ":\n");
+            forcode.push_back("\tpushl\t$0\n");
+            forcode.push_back(".BB" + to_string(bool_breaker-1) + ":\n");
+        }
+        else
+        {
+            _function.addCode("\tpopl\t%eax\n");
+            _function.addCode("\tpopl\t%ebx\n");
+            _function.addCode("\tcmpl\t%eax, %ebx\n");
+            _function.addCode("\tjle\t.BB" + to_string(bool_breaker++) + "\n");
+            _function.addCode("\tpushl\t$1\n");
+            _function.addCode("\tjmp\t.BB" + to_string(bool_breaker++) + "\n");
+            _function.addCode(".BB" + to_string(bool_breaker-2) + ":\n");
+            _function.addCode("\tpushl\t$0\n");
+            _function.addCode(".BB" + to_string(bool_breaker-1) + ":\n");
+        }
     }
     | expr BE expr {
         TreeNode *node=new TreeNode(NODE_OP);
@@ -644,15 +955,42 @@ bool_expr
             exit(1);
         }
         $$=node;
-        _function.addCode("\tpopl\t%eax\n");
-        _function.addCode("\tpopl\t%ebx\n");
-        _function.addCode("\tcmpl\t%eax, %ebx\n");
-        _function.addCode("\tjl\t.BB" + to_string(bool_breaker++) + "\n");
-        _function.addCode("\tpushl\t$1\n");
-        _function.addCode("\tjmp\t.BB" + to_string(bool_breaker++) + "\n");
-        _function.addCode(".BB" + to_string(bool_breaker-2) + ":\n");
-        _function.addCode("\tpushl\t$0\n");
-        _function.addCode(".BB" + to_string(bool_breaker-1) + ":\n");
+        if(whileflag)
+        {
+            whilecode.push_back("\tpopl\t%eax\n");
+            whilecode.push_back("\tpopl\t%ebx\n");
+            whilecode.push_back("\tcmpl\t%eax, %ebx\n");
+            whilecode.push_back("\tjl\t.BB" + to_string(bool_breaker++) + "\n");
+            whilecode.push_back("\tpushl\t$1\n");
+            whilecode.push_back("\tjmp\t.BB" + to_string(bool_breaker++) + "\n");
+            whilecode.push_back(".BB" + to_string(bool_breaker-2) + ":\n");
+            whilecode.push_back("\tpushl\t$0\n");
+            whilecode.push_back(".BB" + to_string(bool_breaker-1) + ":\n");
+        }
+        else if(forflagb)
+        {
+            forcode.push_back("\tpopl\t%eax\n");
+            forcode.push_back("\tpopl\t%ebx\n");
+            forcode.push_back("\tcmpl\t%eax, %ebx\n");
+            forcode.push_back("\tjl\t.BB" + to_string(bool_breaker++) + "\n");
+            forcode.push_back("\tpushl\t$1\n");
+            forcode.push_back("\tjmp\t.BB" + to_string(bool_breaker++) + "\n");
+            forcode.push_back(".BB" + to_string(bool_breaker-2) + ":\n");
+            forcode.push_back("\tpushl\t$0\n");
+            forcode.push_back(".BB" + to_string(bool_breaker-1) + ":\n");
+        }
+        else
+        {
+            _function.addCode("\tpopl\t%eax\n");
+            _function.addCode("\tpopl\t%ebx\n");
+            _function.addCode("\tcmpl\t%eax, %ebx\n");
+            _function.addCode("\tjl\t.BB" + to_string(bool_breaker++) + "\n");
+            _function.addCode("\tpushl\t$1\n");
+            _function.addCode("\tjmp\t.BB" + to_string(bool_breaker++) + "\n");
+            _function.addCode(".BB" + to_string(bool_breaker-2) + ":\n");
+            _function.addCode("\tpushl\t$0\n");
+            _function.addCode(".BB" + to_string(bool_breaker-1) + ":\n");
+        }
     }
     | expr LT expr {
         TreeNode *node=new TreeNode(NODE_OP);
@@ -665,15 +1003,42 @@ bool_expr
             printf("INVALID TYPE\n");
             exit(1);
         }
-        _function.addCode("\tpopl\t%eax\n");
-        _function.addCode("\tpopl\t%ebx\n");
-        _function.addCode("\tcmpl\t%eax, %ebx\n");
-        _function.addCode("\tjge\t.BB" + to_string(bool_breaker++) + "\n");
-        _function.addCode("\tpushl\t$1\n");
-        _function.addCode("\tjmp\t.BB" + to_string(bool_breaker++) + "\n");
-        _function.addCode(".BB" + to_string(bool_breaker-2) + ":\n");
-        _function.addCode("\tpushl\t$0\n");
-        _function.addCode(".BB" + to_string(bool_breaker-1) + ":\n");
+        if(whileflag)
+        {
+            whilecode.push_back("\tpopl\t%eax\n");
+            whilecode.push_back("\tpopl\t%ebx\n");
+            whilecode.push_back("\tcmpl\t%eax, %ebx\n");
+            whilecode.push_back("\tjge\t.BB" + to_string(bool_breaker++) + "\n");
+            whilecode.push_back("\tpushl\t$1\n");
+            whilecode.push_back("\tjmp\t.BB" + to_string(bool_breaker++) + "\n");
+            whilecode.push_back(".BB" + to_string(bool_breaker-2) + ":\n");
+            whilecode.push_back("\tpushl\t$0\n");
+            whilecode.push_back(".BB" + to_string(bool_breaker-1) + ":\n");
+        }
+        else if(forflagb)
+        {
+            forcode.push_back("\tpopl\t%eax\n");
+            forcode.push_back("\tpopl\t%ebx\n");
+            forcode.push_back("\tcmpl\t%eax, %ebx\n");
+            forcode.push_back("\tjge\t.BB" + to_string(bool_breaker++) + "\n");
+            forcode.push_back("\tpushl\t$1\n");
+            forcode.push_back("\tjmp\t.BB" + to_string(bool_breaker++) + "\n");
+            forcode.push_back(".BB" + to_string(bool_breaker-2) + ":\n");
+            forcode.push_back("\tpushl\t$0\n");
+            forcode.push_back(".BB" + to_string(bool_breaker-1) + ":\n");
+        }
+        else
+        {
+            _function.addCode("\tpopl\t%eax\n");
+            _function.addCode("\tpopl\t%ebx\n");
+            _function.addCode("\tcmpl\t%eax, %ebx\n");
+            _function.addCode("\tjge\t.BB" + to_string(bool_breaker++) + "\n");
+            _function.addCode("\tpushl\t$1\n");
+            _function.addCode("\tjmp\t.BB" + to_string(bool_breaker++) + "\n");
+            _function.addCode(".BB" + to_string(bool_breaker-2) + ":\n");
+            _function.addCode("\tpushl\t$0\n");
+            _function.addCode(".BB" + to_string(bool_breaker-1) + ":\n");
+        }
         $$=node;
     }
     | expr LE expr {
@@ -687,15 +1052,42 @@ bool_expr
             printf("INVALID TYPE\n");
             exit(1);
         }
-        _function.addCode("\tpopl\t%eax\n");
-        _function.addCode("\tpopl\t%ebx\n");
-        _function.addCode("\tcmpl\t%eax, %ebx\n");
-        _function.addCode("\tjg\t.BB" + to_string(bool_breaker++) + "\n");
-        _function.addCode("\tpushl\t$1\n");
-        _function.addCode("\tjmp\t.BB" + to_string(bool_breaker++) + "\n");
-        _function.addCode(".BB" + to_string(bool_breaker-2) + ":\n");
-        _function.addCode("\tpushl\t$0\n");
-        _function.addCode(".BB" + to_string(bool_breaker-1) + ":\n");
+        if(whileflag)
+        {
+            whilecode.push_back("\tpopl\t%eax\n");
+            whilecode.push_back("\tpopl\t%ebx\n");
+            whilecode.push_back("\tcmpl\t%eax, %ebx\n");
+            whilecode.push_back("\tjg\t.BB" + to_string(bool_breaker++) + "\n");
+            whilecode.push_back("\tpushl\t$1\n");
+            whilecode.push_back("\tjmp\t.BB" + to_string(bool_breaker++) + "\n");
+            whilecode.push_back(".BB" + to_string(bool_breaker-2) + ":\n");
+            whilecode.push_back("\tpushl\t$0\n");
+            whilecode.push_back(".BB" + to_string(bool_breaker-1) + ":\n");
+        }
+        else if(forflagb)
+        {
+            forcode.push_back("\tpopl\t%eax\n");
+            forcode.push_back("\tpopl\t%ebx\n");
+            forcode.push_back("\tcmpl\t%eax, %ebx\n");
+            forcode.push_back("\tjg\t.BB" + to_string(bool_breaker++) + "\n");
+            forcode.push_back("\tpushl\t$1\n");
+            forcode.push_back("\tjmp\t.BB" + to_string(bool_breaker++) + "\n");
+            forcode.push_back(".BB" + to_string(bool_breaker-2) + ":\n");
+            forcode.push_back("\tpushl\t$0\n");
+            forcode.push_back(".BB" + to_string(bool_breaker-1) + ":\n");
+        }
+        else
+        {
+            _function.addCode("\tpopl\t%eax\n");
+            _function.addCode("\tpopl\t%ebx\n");
+            _function.addCode("\tcmpl\t%eax, %ebx\n");
+            _function.addCode("\tjg\t.BB" + to_string(bool_breaker++) + "\n");
+            _function.addCode("\tpushl\t$1\n");
+            _function.addCode("\tjmp\t.BB" + to_string(bool_breaker++) + "\n");
+            _function.addCode(".BB" + to_string(bool_breaker-2) + ":\n");
+            _function.addCode("\tpushl\t$0\n");
+            _function.addCode(".BB" + to_string(bool_breaker-1) + ":\n");
+        }
         $$=node;
     }
     | bool_expr AND bool_expr {
@@ -704,22 +1096,53 @@ bool_expr
         node->addChild($1);
         node->addChild($3);
         node->varType=VAR_BOOLEAN;
-        if($1->varType != VAR_BOOLEAN || $3->varType != VAR_BOOLEAN)
+        // if($1->varType != VAR_BOOLEAN || $3->varType != VAR_BOOLEAN)
+        // {
+        //     printf("INVALID TYPE\n");
+        //     exit(1);
+        // }
+        if(whileflag)
         {
-            printf("INVALID TYPE\n");
-            exit(1);
+            whilecode.push_back("\tpopl\t%eax\n");
+            whilecode.push_back("\tpopl\t%ebx\n");
+            whilecode.push_back("\taddl\t%eax, %ebx\n");
+            whilecode.push_back("\tmovl\t$2, %eax\n");
+            whilecode.push_back("\tcmpl\t%ebx, %eax\n");
+            whilecode.push_back("\tjne\t.BB" + to_string(bool_breaker++) + "\n");
+            whilecode.push_back("\tpushl\t$1\n");
+            whilecode.push_back("\tjmp\t.BB" + to_string(bool_breaker++) + "\n");
+            whilecode.push_back(".BB" + to_string(bool_breaker-2) + ":\n");
+            whilecode.push_back("\tpushl\t$0\n");
+            whilecode.push_back(".BB" + to_string(bool_breaker-1) + ":\n");
         }
-        _function.addCode("\tpopl\t%eax\n");
-        _function.addCode("\tpopl\t%ebx\n");
-        _function.addCode("\taddl\t%eax, %ebx\n");
-        _function.addCode("\tmovl\t$2, %eax;");
-        _function.addCode("\tcmpl\t%ebx, %eax\n");
-        _function.addCode("\tjne\t.BB" + to_string(bool_breaker++) + "\n");
-        _function.addCode("\tpushl\t$1\n");
-        _function.addCode("\tjmp\t.BB" + to_string(bool_breaker++) + "\n");
-        _function.addCode(".BB" + to_string(bool_breaker-2) + ":\n");
-        _function.addCode("\tpushl\t$0\n");
-        _function.addCode(".BB" + to_string(bool_breaker-1) + ":\n");
+        else if(forflagb)
+        {
+            forcode.push_back("\tpopl\t%eax\n");
+            forcode.push_back("\tpopl\t%ebx\n");
+            forcode.push_back("\taddl\t%eax, %ebx\n");
+            forcode.push_back("\tmovl\t$2, %eax\n");
+            forcode.push_back("\tcmpl\t%ebx, %eax\n");
+            forcode.push_back("\tjne\t.BB" + to_string(bool_breaker++) + "\n");
+            forcode.push_back("\tpushl\t$1\n");
+            forcode.push_back("\tjmp\t.BB" + to_string(bool_breaker++) + "\n");
+            forcode.push_back(".BB" + to_string(bool_breaker-2) + ":\n");
+            forcode.push_back("\tpushl\t$0\n");
+            forcode.push_back(".BB" + to_string(bool_breaker-1) + ":\n");
+        }
+        else
+        {
+            _function.addCode("\tpopl\t%eax\n");
+            _function.addCode("\tpopl\t%ebx\n");
+            _function.addCode("\taddl\t%eax, %ebx\n");
+            _function.addCode("\tmovl\t$2, %eax\n");
+            _function.addCode("\tcmpl\t%ebx, %eax\n");
+            _function.addCode("\tjne\t.BB" + to_string(bool_breaker++) + "\n");
+            _function.addCode("\tpushl\t$1\n");
+            _function.addCode("\tjmp\t.BB" + to_string(bool_breaker++) + "\n");
+            _function.addCode(".BB" + to_string(bool_breaker-2) + ":\n");
+            _function.addCode("\tpushl\t$0\n");
+            _function.addCode(".BB" + to_string(bool_breaker-1) + ":\n");
+        }
         $$=node;
     }
     | bool_expr OR bool_expr {
@@ -728,22 +1151,53 @@ bool_expr
         node->addChild($1);
         node->addChild($3);
         node->varType=VAR_BOOLEAN;
-        if($1->varType != VAR_BOOLEAN || $3->varType != VAR_BOOLEAN)
+        // if($1->varType != VAR_BOOLEAN || $3->varType != VAR_BOOLEAN)
+        // {
+        //     printf("INVALID TYPE\n");
+        //     exit(1);
+        // }
+        if(whileflag)
         {
-            printf("INVALID TYPE\n");
-            exit(1);
+            whilecode.push_back("\tpopl\t%eax\n");
+            whilecode.push_back("\tpopl\t%ebx\n");
+            whilecode.push_back("\taddl\t%eax, %ebx\n");
+            whilecode.push_back("\tmovl\t$0, %eax\n");
+            whilecode.push_back("\tcmpl\t%ebx, %eax\n");
+            whilecode.push_back("\tje\t.BB" + to_string(bool_breaker++) + "\n");
+            whilecode.push_back("\tpushl\t$1\n");
+            whilecode.push_back("\tjmp\t.BB" + to_string(bool_breaker++) + "\n");
+            whilecode.push_back(".BB" + to_string(bool_breaker-2) + ":\n");
+            whilecode.push_back("\tpushl\t$0\n");
+            whilecode.push_back(".BB" + to_string(bool_breaker-1) + ":\n");
         }
-        _function.addCode("\tpopl\t%eax\n");
-        _function.addCode("\tpopl\t%ebx\n");
-        _function.addCode("\taddl\t%eax, %ebx\n");
-        _function.addCode("\tmovl\t$0, %eax;");
-        _function.addCode("\tcmpl\t%ebx, %eax\n");
-        _function.addCode("\tje\t.BB" + to_string(bool_breaker++) + "\n");
-        _function.addCode("\tpushl\t$1\n");
-        _function.addCode("\tjmp\t.BB" + to_string(bool_breaker++) + "\n");
-        _function.addCode(".BB" + to_string(bool_breaker-2) + ":\n");
-        _function.addCode("\tpushl\t$0\n");
-        _function.addCode(".BB" + to_string(bool_breaker-1) + ":\n");
+        else if(forflagb)
+        {
+            forcode.push_back("\tpopl\t%eax\n");
+            forcode.push_back("\tpopl\t%ebx\n");
+            forcode.push_back("\taddl\t%eax, %ebx\n");
+            forcode.push_back("\tmovl\t$0, %eax\n");
+            forcode.push_back("\tcmpl\t%ebx, %eax\n");
+            forcode.push_back("\tje\t.BB" + to_string(bool_breaker++) + "\n");
+            forcode.push_back("\tpushl\t$1\n");
+            forcode.push_back("\tjmp\t.BB" + to_string(bool_breaker++) + "\n");
+            forcode.push_back(".BB" + to_string(bool_breaker-2) + ":\n");
+            forcode.push_back("\tpushl\t$0\n");
+            forcode.push_back(".BB" + to_string(bool_breaker-1) + ":\n");
+        }
+        else
+        {
+            _function.addCode("\tpopl\t%eax\n");
+            _function.addCode("\tpopl\t%ebx\n");
+            _function.addCode("\taddl\t%eax, %ebx\n");
+            _function.addCode("\tmovl\t$0, %eax\n");
+            _function.addCode("\tcmpl\t%ebx, %eax\n");
+            _function.addCode("\tje\t.BB" + to_string(bool_breaker++) + "\n");
+            _function.addCode("\tpushl\t$1\n");
+            _function.addCode("\tjmp\t.BB" + to_string(bool_breaker++) + "\n");
+            _function.addCode(".BB" + to_string(bool_breaker-2) + ":\n");
+            _function.addCode("\tpushl\t$0\n");
+            _function.addCode(".BB" + to_string(bool_breaker-1) + ":\n");
+        }
         $$=node;
     }
     | NOT bool_expr {
@@ -751,15 +1205,45 @@ bool_expr
         node->opType=OP_NOT;
         node->addChild($2);
         node->varType=VAR_BOOLEAN;
-        if($2->varType != VAR_BOOLEAN)
+        // if($2->varType != VAR_BOOLEAN)
+        // {
+        //     printf("INVALID TYPE\n");
+        //     exit(1);
+        // }
+        string str = "\tpopl\t%eax\n";
+        str += "\tcmpl\t$0, %eax\n";
+        str += "\tjne\t.BB" + to_string(bool_breaker++) + "\n";
+        str += "\tpushl\t$1\n";
+        str += "\tjmp\t.BB" + to_string(bool_breaker++) + "\n";
+        str += ".BB" + to_string(bool_breaker-2) + ":\n";
+        str += "\tpushl\t$0\n";
+        str += ".BB" + to_string(bool_breaker-1) + ":\n";
+        if(whileflag)
         {
-            printf("INVALID TYPE\n");
-            exit(1);
+            whilecode.push_back(str);
         }
-        _function.addCode("\tpopl\t%eax\n");
-        _function.addCode("\tsubl\t$1, %eax\n");
-        _function.addCode("\tpushl\t%eax\n");
+        else if(forflagb)
+        {
+            forcode.push_back(str);
+        }
+        else
+        {
+            _function.addCode(str);
+        }
         $$=node;        
+    }
+    | expr
+    {
+        $$=$1;
+        string str = "\tpopl\t%eax\n";
+        str += "\tcmpl\t$0, %eax\n";
+        str += "\tje\t.BB" + to_string(bool_breaker++) + "\n";
+        str += "\tpushl\t$1\n";
+        str += "\tjmp\t.BB" + to_string(bool_breaker++) + "\n";
+        str += ".BB" + to_string(bool_breaker-2) + ":\n";
+        str += "\tpushl\t$0\n";
+        str += ".BB" + to_string(bool_breaker-1) + ":\n";
+        _function.addCode(str);
     }
     ;
 expr
@@ -771,7 +1255,23 @@ expr
         {
             if((*it).name == $$->varName)
             {
-                _function.addCode("\tpushl\t-" + to_string(4 * (curlayer.size() - i)) + "(%ebp)\n");
+                string code = "\tpushl\t";
+                if($$->varType == VAR_STR)
+                    code += "$STR" + to_string($$->int_val) + "\n";
+                else
+                    code += "-" + to_string(4*(curlayer.size()-i)) + "(%ebp)\n";
+                if(whileflag)
+                {
+                    whilecode.push_back(code);
+                }
+                else if(forflagb || forflaga)
+                {
+                    forcode.push_back(code);
+                }
+                else
+                {
+                    _function.addCode(code);
+                }
                 break;
             }
             it++;
@@ -780,7 +1280,18 @@ expr
     }
     | INTEGER {
         $$=$1;
-        _function.addCode("\tpushl\t$" + to_string($$->int_val) + "\n");
+        if(whileflag)
+        {
+            whilecode.push_back("\tpushl\t$" + to_string($$->int_val) + "\n");
+        }
+        else if(forflagb || forflaga)
+        {
+            forcode.push_back("\tpushl\t$" + to_string($$->int_val) + "\n");
+        }
+        else
+        {
+            _function.addCode("\tpushl\t$" + to_string($$->int_val) + "\n");
+        }
     }
     | CHARACTER {$$=$1;}
     | STRING {$$=$1;}
@@ -794,11 +1305,20 @@ expr
         {
             printf("INVALID TYPE\n");
             exit(1);
+        } 
+        string str = "\tpopl\t%ebx\n\tpopl\t%eax\n\taddl\t%eax, %ebx\n\tpushl\t%ebx\n";
+        if(forflaga)
+        {
+            forcode.push_back(str);
         }
-        _function.addCode("\tpopl\t%ebx\n");
-        _function.addCode("\tpopl\t%eax\n");
-        _function.addCode("\taddl\t%eax, %ebx\n");
-        _function.addCode("\tpushl\t%ebx\n");
+        else if(whileflag)
+        {
+            whilecode.push_back(str);
+        }
+        else
+        {
+            _function.addCode(str);
+        }
         $$=node;   
     }
     | expr MINUS expr {
@@ -812,10 +1332,19 @@ expr
             printf("INVALID TYPE\n");
             exit(1);
         }
-        _function.addCode("\tpopl\t%eax\n");
-        _function.addCode("\tpopl\t%ebx\n");
-        _function.addCode("\tsubl\t%eax, %ebx\n");
-        _function.addCode("\tpushl\t%ebx\n");
+        string str = "\tpopl\t%eax\n\tpopl\t%ebx\n\tsubl\t%eax, %ebx\n\tpushl\t%ebx\n";
+        if(forflaga)
+        {
+            forcode.push_back(str);
+        }
+        else if(whileflag)
+        {
+            whilecode.push_back(str);
+        }
+        else
+        {
+            _function.addCode(str);
+        }
         $$=node;   
     }
     | expr MULTI expr {
@@ -829,10 +1358,19 @@ expr
             printf("INVALID TYPE\n");
             exit(1);
         }
-        _function.addCode("\tpopl\t%ebx\n");
-        _function.addCode("\tpopl\t%eax\n");
-        _function.addCode("\timull\t%ebx\n");
-        _function.addCode("\tpushl\t%eax\n");
+        string str = "\tpopl\t%ebx\n\tpopl\t%eax\n\timull\t%ebx\n\tpushl\t%eax\n";
+        if(forflaga)
+        {
+            forcode.push_back(str);
+        }
+        else if(whileflag)
+        {
+            whilecode.push_back(str);
+        }
+        else
+        {
+            _function.addCode(str);
+        }
         $$=node;   
     }
     | expr DIV expr {
@@ -846,11 +1384,19 @@ expr
             printf("INVALID TYPE\n");
             exit(1);
         }
-        _function.addCode("\tpopl\t%ebx\n");
-        _function.addCode("\tpopl\t%eax\n");
-        _function.addCode("\tcltd\n");
-        _function.addCode("\tidivl\t%ebx\n");
-        _function.addCode("\tpushl\t%eax\n");
+        string str = "\tpopl\t%ebx\n\tpopl\t%eax\n\tcltd\n\tidivl\t%ebx\n\tpushl\t%eax\n";
+        if(forflaga)
+        {
+            forcode.push_back(str);
+        }
+        else if(whileflag)
+        {
+            whilecode.push_back(str);
+        }
+        else
+        {
+            _function.addCode(str);
+        }
         $$=node;   
     }
     | expr MOD expr {
@@ -863,6 +1409,19 @@ expr
         {
             printf("INVALID TYPE\n");
             exit(1);
+        }
+        string str = "\tpopl\t%ebx\n\tpopl\t%eax\n\tcltd\n\tidivl\t%ebx\n\tpushl\t%edx\n";
+        if(forflaga)
+        {
+            forcode.push_back(str);
+        }
+        else if(whileflag)
+        {
+            whilecode.push_back(str);
+        }
+        else
+        {
+            _function.addCode(str);
         }
         $$=node;   
     }
@@ -877,9 +1436,16 @@ expr
             exit(1);
         }
         TreeNode* cld = node->getChild(0);
-        if(cld->childNum() == 0 && cld->varName == "#")
+        if(cld->varName == "#")
         {
             _function.resetCode("\tpushl\t$-" + to_string(cld->int_val) + "\n");
+        }
+        else
+        {
+            _function.addCode("\tpopl\t%ebx\n");
+            _function.addCode("\tmovl\t$-1, %eax\n");
+            _function.addCode("\timull\t%ebx\n");
+            _function.addCode("\tpushl\t%eax\n");
         }
         $$=node; 
     }
@@ -888,16 +1454,25 @@ type
     : INT {
         TreeNode *node=new TreeNode(NODE_TYPE);
         node->varType=VAR_INTEGER;
+        insflag = 1;
         $$=node; 
     }
     | VOID {
         TreeNode *node=new TreeNode(NODE_TYPE);
         node->varType=VAR_VOID;
+        insflag = 1;
         $$=node;         
     }
     | CHAR {
         TreeNode *node=new TreeNode(NODE_TYPE);
         node->varType=VAR_CHAR;
+        insflag = 1;
+        $$=node;
+    }
+    | STR {
+        TreeNode *node=new TreeNode(NODE_TYPE);
+        node->varType=VAR_STR;
+        insflag = 1;
         $$=node;
     }
     ;
@@ -944,7 +1519,25 @@ IDcld
     }
     ;
 IDS 
-    : ID {$$=$1;}
+    : ID {
+        $$=$1;
+        if($$->int_val == -1)
+        {
+            vector<variable>::reverse_iterator it = curlayer.rbegin();
+            int i = 0;
+            while(it != curlayer.rend())
+            {
+                if((*it).name == $$->varName)
+                {
+                    break;
+                }
+                it++;
+                i++;
+            }
+            if(!insflag) $$->int_val = curlayer.size() - i;
+            if($$->varType == VAR_STR) $$->int_val = (*it).ro_index;
+        }
+    }
     | IDARR {$$=$1;}
     | IDcld {$$=$1;}
 %%

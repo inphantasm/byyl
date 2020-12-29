@@ -162,7 +162,7 @@ void TreeNode::printAST()
         case VAR_CHAR:
             value = "CHARACTER";
             break;
-        case VAR_STRING:
+        case VAR_STR:
             value = "STRING\t";
             break;
         default:

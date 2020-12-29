@@ -13,6 +13,7 @@ enum NodeType
     NODE_CONCHAR,
     NODE_CONSTR,
     NODE_FEXPR,
+    NODE_WEXPR,
     NODE_VAR,
     NODE_FUNC,
     NODE_ASSIGN,
@@ -41,7 +42,7 @@ enum VarType
     VAR_BOOLEAN,
     VAR_INTEGER,
     VAR_CHAR,
-    VAR_STRING,
+    VAR_STR
 };
 enum VarFlag
 {

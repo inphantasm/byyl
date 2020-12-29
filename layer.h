@@ -7,9 +7,8 @@ class variable
 public:
     int type;
     string name;
-    int int_val;
-    string str_val;
     vector<int> dim;
+    int ro_index;
     variable()
     {
         this->type = 0;
@@ -23,6 +22,12 @@ public:
     variable(int type, string name)
     {
         this->type = type;
+        this->name = name;
+    }
+    variable(string name, int ro_index)
+    {
+        this->type = 4;
+        this->ro_index = ro_index;
         this->name = name;
     }
 };

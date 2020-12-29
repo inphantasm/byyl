@@ -1,23 +1,3 @@
-void main()
-{
-    int a = 12, b = 3;
-    if (a == 12)
-    {
-        printf("%d", b);
-        if(a == 13)
-        {
-            printf("5d");
-        }
-        if(a == 12)
-        {
-            printf("6d");
-        }
-    }
-    else
-    {
-        printf("%d", a);
-    }
-}
 // int a = 1
 // int b = 2;
 // if(!2==3){
@@ -27,3 +7,19 @@ void main()
 // while(a==b){
 //     printf("%d", a);
 // }
+void main()
+{
+    int a, b, c = 10;
+    scanf("%d", &b);
+    printf("%d\n", a);
+    while(a < c)
+    {
+        a++;
+        printf("WHILE%d\n", a);
+    }
+    printf("MOD%d\n", b % c);
+    for (int i = 0; i < b;i++)
+    {
+        printf("FOR%d\n", a + c * i);
+    }
+}
